@@ -1,8 +1,7 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+#![warn(incomplete_features)]
+#![feature(generic_const_exprs)]
+#![feature(associated_type_defaults)]
+#![feature(let_chains)]
+pub mod multi_array;
+
+pub use multi_array::*;
