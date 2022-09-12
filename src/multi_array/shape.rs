@@ -1,249 +1,346 @@
 use std::fmt;
+use std::ops;
 
 const DYN_DIMENSION: usize = usize::MAX;
 
-pub struct DimensionError {
+pub struct DimensionMismatchingError {
     pub dimension: usize,
-    pub target_dimension: usize
+    pub vector_dimension: usize,
 }
 
-impl fmt::Debug for DimensionError {
+impl fmt::Debug for DimensionMismatchingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dimension error: {}, but there is only {}", self.dimension, self.target_dimension)
+        write!(
+            f,
+            "Dimension should be {}, not {}.",
+            self.dimension, self.vector_dimension
+        )
     }
 }
 
-pub struct OutOfIndexError {
+pub struct OutOfShapeError {
     pub dimension: usize,
-    pub size_of_dimension: usize,
-    pub index_of_dimension: usize
+    pub size: usize,
+    pub vector_index: usize,
 }
 
-impl fmt::Debug for OutOfIndexError {
+impl fmt::Debug for OutOfShapeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Out of index error: {} in dimension {}, but there is only {}", self.index_of_dimension, self.dimension, self.size_of_dimension)
+        write!(
+            f,
+            "Length of dimension {} is {}, but it get {}.",
+            self.dimension, self.size, self.vector_index
+        )
     }
 }
 
 pub enum IndexCalculationError {
-    DimensionError(DimensionError),
-    OutOfIndexError(OutOfIndexError)
+    DimensionMismatching(DimensionMismatchingError),
+    OutOfShape(OutOfShapeError),
 }
 
 pub trait Shape {
     const DIMENSION: usize;
+    type VectorType: ops::IndexMut<usize, Output = usize>;
+
+    fn zero(&self) -> Self::VectorType;
 
     fn len(&self) -> usize;
-    fn dimension(&self) -> usize { Self::DIMENSION }
-    fn len_of_dimension(&self, dimension: usize) -> Result<usize, DimensionError>;
-    fn offset_of_dimension(&self, dimension: usize) -> Result<usize, DimensionError>;
+    fn dimension(&self) -> usize {
+        Self::DIMENSION
+    }
+
+    fn shape(&self) -> &[usize];
+    fn offset(&self) -> &[usize];
+
+    fn len_of_dimension(&self, dimension: usize) -> Result<usize, DimensionMismatchingError> {
+        if dimension > Self::DIMENSION {
+            Err(DimensionMismatchingError {
+                dimension: Self::DIMENSION,
+                vector_dimension: dimension,
+            })
+        } else {
+            Ok(self.shape()[dimension])
+        }
+    }
+
+    fn offset_of_dimension(&self, dimension: usize) -> Result<usize, DimensionMismatchingError> {
+        if dimension > Self::DIMENSION {
+            Err(DimensionMismatchingError {
+                dimension: Self::DIMENSION,
+                vector_dimension: dimension,
+            })
+        } else {
+            Ok(self.offset()[dimension])
+        }
+    }
 
     fn index(&self, vector: &[usize]) -> Result<usize, IndexCalculationError> {
         if vector.len() > self.dimension() {
-            Err(IndexCalculationError::DimensionError(
-                DimensionError { 
-                    dimension: self.dimension(), 
-                    target_dimension: vector.len() 
-                }))
+            Err(IndexCalculationError::DimensionMismatching(
+                DimensionMismatchingError {
+                    dimension: self.dimension(),
+                    vector_dimension: vector.len(),
+                },
+            ))
         } else {
             let mut index = 0;
             for i in 0..self.dimension() {
                 if vector[i] > self.len_of_dimension(i).unwrap() {
-                    return Err(IndexCalculationError::OutOfIndexError(
-                        OutOfIndexError { 
-                            dimension: i,
-                            size_of_dimension: self.len_of_dimension(i).unwrap(),
-                            index_of_dimension: vector[i]
-                        }))
+                    return Err(IndexCalculationError::OutOfShape(OutOfShapeError {
+                        dimension: i,
+                        size: self.len_of_dimension(i).unwrap(),
+                        vector_index: vector[i],
+                    }));
                 }
+                index += vector[i] * self.offset_of_dimension(i).unwrap();
             }
             Ok(index)
         }
+    }
+
+    fn vector(&self, mut index: usize) -> Self::VectorType {
+        let mut vector = self.zero();
+        for i in 0..self.dimension() {
+            let offest = self.offset_of_dimension(i).unwrap();
+            vector[i] = index / offest;
+            index = index % offest;
+        }
+        vector
+    }
+
+    fn next_vector(&self, vector: &mut Self::VectorType) -> bool {
+        let mut carry = false;
+        vector[self.dimension() - 1] += 1;
+
+        for i in (0..self.dimension()).rev() {
+            if carry {
+                vector[i] += 1;
+                carry = false;
+            }
+            if vector[i] == self.len_of_dimension(i).unwrap() {
+                vector[i] = 0;
+                carry = true;
+            }
+        }
+        !carry
     }
 }
 
 pub struct Shape1 {
     pub(self) shape: [usize; 1],
-    pub(self) len: usize
 }
 
 impl Shape1 {
-    fn new() -> Self {
-        let len = Self::len(&[1]);
-        Shape1 {
-            shape: [0],
-            len: len
-        }
+    fn new(shape: [usize; 1]) -> Self {
+        Shape1 { shape: shape }
     }
-
-    fn new_from_array(shape: [usize; 1]) -> Self {
-        let len = Self::len(&shape);
-        Shape1 {
-            shape: shape,
-            len: len
-        }
-    }
-
-    pub(self) fn len(shape: &[usize; 1]) -> usize { shape[0] }
 }
 
 impl Shape for Shape1 {
     const DIMENSION: usize = 1;
+    type VectorType = [usize; 1];
 
-    fn len(&self) -> usize { self.len }
+    fn zero(&self) -> Self::VectorType {
+        [0]
+    }
 
-    fn len_of_dimension(&self, dimension: usize) -> Result<usize, DimensionError> {
-        if dimension > Self::DIMENSION {
-            Err(DimensionError { 
-                dimension: Self::DIMENSION, 
-                target_dimension: dimension
-            })
-        } else {
-            Ok(self._shape[dimension])
-        }
+    fn len(&self) -> usize {
+        self.shape[0]
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn offset(&self) -> &[usize] {
+        &self.shape
     }
 }
 
 pub struct Shape2 {
-    pub(self) _shape: [usize; 2],
-    pub(self) _offset: [usize; 2]
+    pub(self) shape: [usize; 2],
+    pub(self) offset: [usize; 2],
+    pub(self) len: usize,
 }
 
 impl Shape2 {
-    fn new() -> Self {
-        let offset = Self::offset(&[1, 1]);
+    fn new(shape: [usize; 2]) -> Self {
+        let (offset, len) = Self::offset(&shape);
         Shape2 {
-            _shape: [1, 1],
-            _offset: offset
+            shape: shape,
+            offset: offset,
+            len: len,
         }
     }
 
-    fn new_from_array(shape: [usize; 2]) -> Self {
-        let offset = Self::offset(&shape);
-        Shape2 {
-            _shape: shape,
-            _offset: offset
-        }
-    }
-
-    fn offset(shape: &[usize; 2]) -> [usize; 2] {
-        [shape[1], 1]
+    pub(self) fn offset(shape: &[usize; 2]) -> ([usize; 2], usize) {
+        ([shape[0], 1], shape[0] * shape[1])
     }
 }
 
 impl Shape for Shape2 {
-    const DIMENSION: usize = 1;
+    const DIMENSION: usize = 2;
+    type VectorType = [usize; 2];
 
-    fn index(&self, vector: &[usize]) -> Result<usize, IndexCalculationError> {
-        if vector.len() != Self::DIMENSION {
-            Err(IndexCalculationError::DimensionError(
-                DimensionError { 
-                    dimension: self._shape.len(), 
-                    targetDimension: vector.len() 
-                }))
-        } else if let outOfIndexDimension = Option::Some(self.check(&vector)) {
-            // todo: impl it
-            Ok(0)
-        } else {
-            Ok(0)
-        }
+    fn zero(&self) -> Self::VectorType {
+        [0, 0]
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn offset(&self) -> &[usize] {
+        &self.offset
     }
 }
 
 pub struct Shape3 {
     pub(self) shape: [usize; 3],
-    pub(self) offset: [usize; 3]
+    pub(self) offset: [usize; 3],
+    pub(self) len: usize,
 }
 
 impl Shape3 {
-    fn new() -> Self {
-        return Shape3 {
-            _shape: [1, 1, 1]
+    fn new(shape: [usize; 3]) -> Self {
+        let (offset, len) = Self::offset(&shape);
+        Shape3 {
+            shape: shape,
+            offset: offset,
+            len: len,
         }
     }
 
-    fn new_from_array(shape: [usize; 3]) -> Self {
-        return Shape3 {
-            _shape: shape
-        }
+    pub(self) fn offset(shape: &[usize; 3]) -> ([usize; 3], usize) {
+        (
+            [shape[0] * shape[1], shape[0], 1],
+            shape[0] * shape[1] * shape[2],
+        )
     }
 }
 
 impl Shape for Shape3 {
-    const DIMENSION: usize = 1;
+    const DIMENSION: usize = 3;
+    type VectorType = [usize; 3];
 
-    fn index(&self, vector: &[usize]) -> Result<usize, IndexCalculationError> {
-        return if vector.len() != Self::DIMENSION {
-            Err(DimensionError { dimension: self._shape.len(), targetDimension: vector.len() })
-        } else {
-            // todo: impl it
-            Ok(0)
-        }
+    fn zero(&self) -> Self::VectorType {
+        [0, 0, 0]
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn offset(&self) -> &[usize] {
+        &self.offset
     }
 }
 
 pub struct Shape4 {
     pub(self) shape: [usize; 4],
-    pub(self) offset: [usize; 4]
+    pub(self) offset: [usize; 4],
+    pub(self) len: usize,
 }
 
 impl Shape4 {
-    fn new() -> Self {
-        return Shape4 {
-            _shape: [1, 1, 1, 1]
+    fn new(shape: [usize; 4]) -> Self {
+        let (offset, len) = Self::offset(&shape);
+        Shape4 {
+            shape: shape,
+            offset: offset,
+            len: len,
         }
     }
 
-    fn new_from_array(shape: [usize; 4]) -> Self {
-        return Shape4 {
-            _shape: shape
-        }
+    pub(self) fn offset(shape: &[usize; 4]) -> ([usize; 4], usize) {
+        (
+            [
+                shape[0] * shape[1] * shape[2],
+                shape[0] * shape[1],
+                shape[0],
+                1,
+            ],
+            shape[0] * shape[1] * shape[2] * shape[3],
+        )
     }
 }
 
 impl Shape for Shape4 {
-    const DIMENSION: usize = 1;
+    const DIMENSION: usize = 4;
+    type VectorType = [usize; 4];
 
-    fn index(&self, vector: &[usize]) -> Result<usize, DimensionError> {
-        return if vector.len() != Self::DIMENSION {
-            Err(DimensionError { dimension: self._shape.len(), targetDimension: vector.len() })
-        } else {
-            // todo: impl it
-            Ok(0)
-        }
+    fn zero(&self) -> Self::VectorType {
+        [0, 0, 0, 0]
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn offset(&self) -> &[usize] {
+        &self.offset
     }
 }
 
 pub struct DynShape {
     pub(self) shape: Vec<usize>,
-    pub(self) offset: Vec<usize>
+    pub(self) offset: Vec<usize>,
+    pub(self) len: usize,
 }
 
 impl DynShape {
-    fn new() -> Self {
-        return DynShape {
-            _shape: vec![1]
+    fn new(shape: Vec<usize>) -> Self {
+        let (offset, len) = Self::offset(&shape);
+        DynShape {
+            shape: shape,
+            offset: offset,
+            len: len,
         }
     }
 
-    fn new_from_array(shape: Vec<usize>) -> Self {
-        return DynShape {
-            _shape: shape
-        }
+    pub(self) fn offset(shape: &Vec<usize>) -> (Vec<usize>, usize) {
+        let mut offset: Vec<usize> = (0..shape.len()).map(|_| 0).collect();
+        offset[shape.len() - 1] = 1;
+        let mut len = 1;
+        for i in (0..(shape.len() - 1)).rev() {}
+        (offset, len)
     }
 }
 
 impl Shape for DynShape {
-    const DIMENSION: usize = 1;
+    const DIMENSION: usize = DYN_DIMENSION;
+    type VectorType = Vec<usize>;
 
-    fn dimension(&self) -> usize { self._shape.len() }
+    fn zero(&self) -> Self::VectorType {
+        (0..self.shape.len()).map(|_| 0).collect()
+    }
 
-    fn index(&self, vector: &[usize]) -> Result<usize, DimensionError> {
-        return if vector.len() != self._shape.len() {
-            Err(DimensionError { dimension: self._shape.len(), targetDimension: vector.len() })
-        } else {
-            // todo: impl it
-            Ok(0)
-        }
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn dimension(&self) -> usize {
+        self.shape.len()
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn offset(&self) -> &[usize] {
+        &self.offset
     }
 }
