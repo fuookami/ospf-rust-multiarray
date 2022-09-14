@@ -1,11 +1,24 @@
+use super::dummy_vector::DummyIndex;
+use super::map_vector::MapIndex;
 use std::fmt;
 use std::ops;
 
 const DYN_DIMENSION: usize = usize::MAX;
 
+#[derive(Clone, Copy)]
 pub struct DimensionMismatchingError {
     pub dimension: usize,
     pub vector_dimension: usize,
+}
+
+impl fmt::Display for DimensionMismatchingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Dimension should be {}, not {}.",
+            self.dimension, self.vector_dimension
+        )
+    }
 }
 
 impl fmt::Debug for DimensionMismatchingError {
@@ -18,10 +31,21 @@ impl fmt::Debug for DimensionMismatchingError {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct OutOfShapeError {
     pub dimension: usize,
     pub size: usize,
     pub vector_index: usize,
+}
+
+impl fmt::Display for OutOfShapeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Length of dimension {} is {}, but it get {}.",
+            self.dimension, self.size, self.vector_index
+        )
+    }
 }
 
 impl fmt::Debug for OutOfShapeError {
@@ -34,19 +58,38 @@ impl fmt::Debug for OutOfShapeError {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum IndexCalculationError {
     DimensionMismatching(DimensionMismatchingError),
     OutOfShape(OutOfShapeError),
 }
 
+impl fmt::Display for IndexCalculationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IndexCalculationError::DimensionMismatching(err) => {
+                write!(f, "{}", err)
+            }
+            IndexCalculationError::OutOfShape(err) => {
+                write!(f, "{}", err)
+            }
+        }
+    }
+}
+
 pub trait Shape {
     const DIMENSION: usize;
     type VectorType: ops::IndexMut<usize, Output = usize>;
+    type DummyVectorType: ops::IndexMut<usize, Output = DummyIndex>;
+    type MapVectorType: ops::IndexMut<usize, Output = MapIndex>;
 
     fn zero(&self) -> Self::VectorType;
 
     fn len(&self) -> usize;
     fn dimension(&self) -> usize {
+        Self::DIMENSION
+    }
+    fn dimension_of(vector: &Self::VectorType) -> usize {
         Self::DIMENSION
     }
 
@@ -75,12 +118,12 @@ pub trait Shape {
         }
     }
 
-    fn index(&self, vector: &[usize]) -> Result<usize, IndexCalculationError> {
-        if vector.len() > self.dimension() {
+    fn index(&self, vector: &Self::VectorType) -> Result<usize, IndexCalculationError> {
+        if Self::dimension_of(vector) > self.dimension() {
             Err(IndexCalculationError::DimensionMismatching(
                 DimensionMismatchingError {
                     dimension: self.dimension(),
-                    vector_dimension: vector.len(),
+                    vector_dimension: Self::dimension_of(vector),
                 },
             ))
         } else {
@@ -133,13 +176,15 @@ pub struct Shape1 {
 
 impl Shape1 {
     fn new(shape: [usize; 1]) -> Self {
-        Shape1 { shape: shape }
+        Self { shape: shape }
     }
 }
 
 impl Shape for Shape1 {
     const DIMENSION: usize = 1;
     type VectorType = [usize; 1];
+    type DummyVectorType = [DummyIndex; 1];
+    type MapVectorType = [MapIndex; 1];
 
     fn zero(&self) -> Self::VectorType {
         [0]
@@ -167,7 +212,7 @@ pub struct Shape2 {
 impl Shape2 {
     fn new(shape: [usize; 2]) -> Self {
         let (offset, len) = Self::offset(&shape);
-        Shape2 {
+        Self {
             shape: shape,
             offset: offset,
             len: len,
@@ -175,13 +220,15 @@ impl Shape2 {
     }
 
     pub(self) fn offset(shape: &[usize; 2]) -> ([usize; 2], usize) {
-        ([shape[0], 1], shape[0] * shape[1])
+        ([shape[1], 1], shape[0] * shape[1])
     }
 }
 
 impl Shape for Shape2 {
     const DIMENSION: usize = 2;
     type VectorType = [usize; 2];
+    type DummyVectorType = [DummyIndex; 2];
+    type MapVectorType = [MapIndex; 2];
 
     fn zero(&self) -> Self::VectorType {
         [0, 0]
@@ -209,7 +256,7 @@ pub struct Shape3 {
 impl Shape3 {
     fn new(shape: [usize; 3]) -> Self {
         let (offset, len) = Self::offset(&shape);
-        Shape3 {
+        Self {
             shape: shape,
             offset: offset,
             len: len,
@@ -218,7 +265,7 @@ impl Shape3 {
 
     pub(self) fn offset(shape: &[usize; 3]) -> ([usize; 3], usize) {
         (
-            [shape[0] * shape[1], shape[0], 1],
+            [shape[1] * shape[2], shape[2], 1],
             shape[0] * shape[1] * shape[2],
         )
     }
@@ -227,6 +274,8 @@ impl Shape3 {
 impl Shape for Shape3 {
     const DIMENSION: usize = 3;
     type VectorType = [usize; 3];
+    type DummyVectorType = [DummyIndex; 3];
+    type MapVectorType = [MapIndex; 3];
 
     fn zero(&self) -> Self::VectorType {
         [0, 0, 0]
@@ -254,7 +303,7 @@ pub struct Shape4 {
 impl Shape4 {
     fn new(shape: [usize; 4]) -> Self {
         let (offset, len) = Self::offset(&shape);
-        Shape4 {
+        Self {
             shape: shape,
             offset: offset,
             len: len,
@@ -264,9 +313,9 @@ impl Shape4 {
     pub(self) fn offset(shape: &[usize; 4]) -> ([usize; 4], usize) {
         (
             [
-                shape[0] * shape[1] * shape[2],
-                shape[0] * shape[1],
-                shape[0],
+                shape[1] * shape[2] * shape[3],
+                shape[2] * shape[3],
+                shape[3],
                 1,
             ],
             shape[0] * shape[1] * shape[2] * shape[3],
@@ -277,6 +326,8 @@ impl Shape4 {
 impl Shape for Shape4 {
     const DIMENSION: usize = 4;
     type VectorType = [usize; 4];
+    type DummyVectorType = [DummyIndex; 4];
+    type MapVectorType = [MapIndex; 4];
 
     fn zero(&self) -> Self::VectorType {
         [0, 0, 0, 0]
@@ -304,7 +355,7 @@ pub struct DynShape {
 impl DynShape {
     fn new(shape: Vec<usize>) -> Self {
         let (offset, len) = Self::offset(&shape);
-        DynShape {
+        Self {
             shape: shape,
             offset: offset,
             len: len,
@@ -323,6 +374,8 @@ impl DynShape {
 impl Shape for DynShape {
     const DIMENSION: usize = DYN_DIMENSION;
     type VectorType = Vec<usize>;
+    type DummyVectorType = Vec<DummyIndex>;
+    type MapVectorType = Vec<MapIndex>;
 
     fn zero(&self) -> Self::VectorType {
         (0..self.shape.len()).map(|_| 0).collect()
@@ -334,6 +387,10 @@ impl Shape for DynShape {
 
     fn dimension(&self) -> usize {
         self.shape.len()
+    }
+
+    fn dimension_of(vector: &Self::VectorType) -> usize {
+        vector.len()
     }
 
     fn shape(&self) -> &[usize] {
