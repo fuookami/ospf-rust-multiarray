@@ -1,5 +1,4 @@
 pub mod dummy_vector;
-pub mod indexed;
 pub mod map_vector;
 pub mod multi_array;
 pub mod multi_array_view;

@@ -2,6 +2,8 @@ use super::dummy_vector::DummyIndex;
 use super::map_vector::MapIndex;
 use std::fmt;
 use std::ops;
+use std::ops::Bound;
+use std::ops::Range;
 
 const DYN_DIMENSION: usize = usize::MAX;
 
@@ -34,8 +36,8 @@ impl fmt::Debug for DimensionMismatchingError {
 #[derive(Clone, Copy)]
 pub struct OutOfShapeError {
     pub dimension: usize,
-    pub size: usize,
-    pub vector_index: usize,
+    pub len: usize,
+    pub vector_index: isize,
 }
 
 impl fmt::Display for OutOfShapeError {
@@ -43,7 +45,7 @@ impl fmt::Display for OutOfShapeError {
         write!(
             f,
             "Length of dimension {} is {}, but it get {}.",
-            self.dimension, self.size, self.vector_index
+            self.dimension, self.len, self.vector_index
         )
     }
 }
@@ -53,7 +55,7 @@ impl fmt::Debug for OutOfShapeError {
         write!(
             f,
             "Length of dimension {} is {}, but it get {}.",
-            self.dimension, self.size, self.vector_index
+            self.dimension, self.len, self.vector_index
         )
     }
 }
@@ -132,8 +134,8 @@ pub trait Shape {
                 if vector[i] > self.len_of_dimension(i).unwrap() {
                     return Err(IndexCalculationError::OutOfShape(OutOfShapeError {
                         dimension: i,
-                        size: self.len_of_dimension(i).unwrap(),
-                        vector_index: vector[i],
+                        len: self.len_of_dimension(i).unwrap(),
+                        vector_index: vector[i] as isize,
                     }));
                 }
                 index += vector[i] * self.offset_of_dimension(i).unwrap();
@@ -152,6 +154,45 @@ pub trait Shape {
         vector
     }
 
+    fn iterator_of<'a>(
+        &self,
+        dimension: usize,
+        dummy_index: &DummyIndex,
+    ) -> Box<dyn Iterator<Item = usize>> {
+        match dummy_index {
+            DummyIndex::Index(index) => match self.actual_index(dimension, *index) {
+                Some(value) => Box::new(Range {
+                    start: value,
+                    end: value + 1,
+                }),
+                None => Box::new(Range { start: 0, end: 1 }),
+            },
+            DummyIndex::Range(range) => {
+                let lowerBound = match range.start_bound() {
+                    Bound::Included(value) => self.actual_index(dimension, value),
+                    Bound::Excluded(value) => self.actual_index(dimension, value - 1),
+                    Bound::Unbounded => Some(0),
+                };
+                let upperBound = match range.end_bound() {
+                    Bound::Included(value) => self.actual_index(dimension, value + 1),
+                    Bound::Excluded(value) => self.actual_index(dimension, value),
+                    Bound::Unbounded => Some(self.len_of_dimension(dimension).unwrap()),
+                };
+                if lowerBound.is_some() && upperBound.is_some() {
+                    Box::new(Range {
+                        start: lowerBound.unwrap(),
+                        end: upperBound.unwrap(),
+                    })
+                } else {
+                    Box::new(Range { start: 0, end: 1 })
+                }
+            }
+            DummyIndex::IndexArray(indexes) => {
+                Box::new(indexes.filter_map(|index| self.actual_index(dimension, index)))
+            }
+        }
+    }
+
     fn next_vector(&self, vector: &mut Self::VectorType) -> bool {
         let mut carry = false;
         vector[self.dimension() - 1] += 1;
@@ -168,6 +209,31 @@ pub trait Shape {
         }
         !carry
     }
+
+    fn actual_index(&self, dimension: usize, index: isize) -> Option<usize> {
+        let len = self.len_of_dimension(dimension).unwrap();
+        if index >= (len as isize) || index < -(len as isize) {
+            None
+        } else {
+            Some((index % (len as isize)) as usize)
+        }
+    }
+}
+
+pub(self) fn offset<const DIMENSION: usize>(
+    shape: &[usize; DIMENSION],
+) -> ([usize; DIMENSION], usize) {
+    let mut offset: [usize; DIMENSION];
+    offset.fill(0);
+
+    offset[shape.len() - 1] = 1;
+    let mut len = 1;
+    for i in (0..(shape.len() - 1)).rev() {
+        offset[i] = offset[i + 1] * shape[i + 1];
+        len *= shape[i + 1];
+    }
+    len *= shape[0];
+    (offset, len)
 }
 
 pub struct Shape1 {
@@ -175,7 +241,7 @@ pub struct Shape1 {
 }
 
 impl Shape1 {
-    fn new(shape: [usize; 1]) -> Self {
+    pub fn new(shape: [usize; 1]) -> Self {
         Self { shape: shape }
     }
 }
@@ -203,148 +269,71 @@ impl Shape for Shape1 {
     }
 }
 
-pub struct Shape2 {
-    pub(self) shape: [usize; 2],
-    pub(self) offset: [usize; 2],
-    pub(self) len: usize,
-}
-
-impl Shape2 {
-    fn new(shape: [usize; 2]) -> Self {
-        let (offset, len) = Self::offset(&shape);
-        Self {
-            shape: shape,
-            offset: offset,
-            len: len,
+macro_rules! shape {
+    ($type:ident, $dim:expr) => {
+        pub struct $type {
+            pub(self) shape: [usize; $dim],
+            pub(self) offset: [usize; $dim],
+            pub(self) len: usize,
         }
-    }
 
-    pub(self) fn offset(shape: &[usize; 2]) -> ([usize; 2], usize) {
-        ([shape[1], 1], shape[0] * shape[1])
-    }
-}
-
-impl Shape for Shape2 {
-    const DIMENSION: usize = 2;
-    type VectorType = [usize; 2];
-    type DummyVectorType = [DummyIndex; 2];
-    type MapVectorType = [MapIndex; 2];
-
-    fn zero(&self) -> Self::VectorType {
-        [0, 0]
-    }
-
-    fn len(&self) -> usize {
-        self.len
-    }
-
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-
-    fn offset(&self) -> &[usize] {
-        &self.offset
-    }
-}
-
-pub struct Shape3 {
-    pub(self) shape: [usize; 3],
-    pub(self) offset: [usize; 3],
-    pub(self) len: usize,
-}
-
-impl Shape3 {
-    fn new(shape: [usize; 3]) -> Self {
-        let (offset, len) = Self::offset(&shape);
-        Self {
-            shape: shape,
-            offset: offset,
-            len: len,
+        impl $type {
+            fn new(shape: [usize; $dim]) -> Self {
+                let (offset, len) = offset(&shape);
+                Self {
+                    shape: shape,
+                    offset: offset,
+                    len: len,
+                }
+            }
         }
-    }
 
-    pub(self) fn offset(shape: &[usize; 3]) -> ([usize; 3], usize) {
-        (
-            [shape[1] * shape[2], shape[2], 1],
-            shape[0] * shape[1] * shape[2],
-        )
-    }
-}
+        impl Shape for $type {
+            const DIMENSION: usize = $dim;
+            type VectorType = [usize; $dim];
+            type DummyVectorType = [DummyIndex; $dim];
+            type MapVectorType = [MapIndex; $dim];
 
-impl Shape for Shape3 {
-    const DIMENSION: usize = 3;
-    type VectorType = [usize; 3];
-    type DummyVectorType = [DummyIndex; 3];
-    type MapVectorType = [MapIndex; 3];
+            fn zero(&self) -> Self::VectorType {
+                let mut ret: [usize; $dim];
+                ret.fill(0);
+                ret
+            }
 
-    fn zero(&self) -> Self::VectorType {
-        [0, 0, 0]
-    }
+            fn len(&self) -> usize {
+                self.len
+            }
 
-    fn len(&self) -> usize {
-        self.len
-    }
+            fn shape(&self) -> &[usize] {
+                &self.shape
+            }
 
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-
-    fn offset(&self) -> &[usize] {
-        &self.offset
-    }
-}
-
-pub struct Shape4 {
-    pub(self) shape: [usize; 4],
-    pub(self) offset: [usize; 4],
-    pub(self) len: usize,
-}
-
-impl Shape4 {
-    fn new(shape: [usize; 4]) -> Self {
-        let (offset, len) = Self::offset(&shape);
-        Self {
-            shape: shape,
-            offset: offset,
-            len: len,
+            fn offset(&self) -> &[usize] {
+                &self.offset
+            }
         }
-    }
-
-    pub(self) fn offset(shape: &[usize; 4]) -> ([usize; 4], usize) {
-        (
-            [
-                shape[1] * shape[2] * shape[3],
-                shape[2] * shape[3],
-                shape[3],
-                1,
-            ],
-            shape[0] * shape[1] * shape[2] * shape[3],
-        )
-    }
+    };
 }
 
-impl Shape for Shape4 {
-    const DIMENSION: usize = 4;
-    type VectorType = [usize; 4];
-    type DummyVectorType = [DummyIndex; 4];
-    type MapVectorType = [MapIndex; 4];
-
-    fn zero(&self) -> Self::VectorType {
-        [0, 0, 0, 0]
-    }
-
-    fn len(&self) -> usize {
-        self.len
-    }
-
-    fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-
-    fn offset(&self) -> &[usize] {
-        &self.offset
-    }
-}
+shape!(Shape2, 2);
+shape!(Shape3, 3);
+shape!(Shape4, 4);
+shape!(Shape5, 5);
+shape!(Shape6, 6);
+shape!(Shape7, 7);
+shape!(Shape8, 8);
+shape!(Shape9, 9);
+shape!(Shape10, 10);
+shape!(Shape11, 11);
+shape!(Shape12, 12);
+shape!(Shape13, 13);
+shape!(Shape14, 14);
+shape!(Shape15, 15);
+shape!(Shape16, 16);
+shape!(Shape17, 17);
+shape!(Shape18, 18);
+shape!(Shape19, 19);
+shape!(Shape20, 20);
 
 pub struct DynShape {
     pub(self) shape: Vec<usize>,
@@ -366,7 +355,11 @@ impl DynShape {
         let mut offset: Vec<usize> = (0..shape.len()).map(|_| 0).collect();
         offset[shape.len() - 1] = 1;
         let mut len = 1;
-        for i in (0..(shape.len() - 1)).rev() {}
+        for i in (0..(shape.len() - 1)).rev() {
+            offset[i] = offset[i + 1] * shape[i + 1];
+            len *= shape[i + 1];
+        }
+        len *= shape[0];
         (offset, len)
     }
 }

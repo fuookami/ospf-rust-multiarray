@@ -1,8 +1,10 @@
+use super::Shape;
+use std::cell::RefCell;
 use std::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-pub(self) trait DummyIndexRange {
+pub(super) trait DummyIndexRange {
     fn start_bound(&self) -> Bound<isize>;
     fn end_bound(&self) -> Bound<isize>;
     fn contains(&self, v: isize) -> bool;
@@ -33,68 +35,91 @@ where
     }
 }
 
-enum DummyIndex<'a> {
+pub(super) enum DummyIndex {
     Index(isize),
     Range(Box<dyn DummyIndexRange>),
-    IndexArray(&'a [isize]),
+    IndexArray(Box<dyn Iterator<Item = isize>>),
 }
 
-impl<'a> From<isize> for DummyIndex<'a> {
+impl From<isize> for DummyIndex {
     fn from(value: isize) -> Self {
         Self::Index(value)
     }
 }
 
-impl<'a> From<Range<isize>> for DummyIndex<'a> {
+impl From<usize> for DummyIndex {
+    fn from(value: usize) -> Self {
+        Self::Index(value as isize)
+    }
+}
+
+impl From<Range<isize>> for DummyIndex {
     fn from(range: Range<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeFrom<isize>> for DummyIndex<'a> {
+impl From<RangeFrom<isize>> for DummyIndex {
     fn from(range: RangeFrom<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeInclusive<isize>> for DummyIndex<'a> {
+impl From<RangeInclusive<isize>> for DummyIndex {
     fn from(range: RangeInclusive<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeTo<isize>> for DummyIndex<'a> {
+impl From<RangeTo<isize>> for DummyIndex {
     fn from(range: RangeTo<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeToInclusive<isize>> for DummyIndex<'a> {
+impl From<RangeToInclusive<isize>> for DummyIndex {
     fn from(range: RangeToInclusive<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeFull> for DummyIndex<'a> {
+impl From<RangeFull> for DummyIndex {
     fn from(range: RangeFull) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<&[isize]> for DummyIndex<'a> {
+impl From<&[isize]> for DummyIndex {
     fn from(indexes: &[isize]) -> Self {
-        Self::IndexArray(indexes)
+        Self::IndexArray(Box::new(indexes.iter().map(|index| *index)))
     }
 }
 
-macro_rules! dummy {
-    ($($x:expr),*) => {
-        [$(DummyIndex::from($x),)*]
+pub(super) struct DummyAccessPolicy<'a, S: Shape> {
+    vector: &'a S::DummyVectorType,
+    shape: S,
+    now: RefCell<S::VectorType>,
+}
+
+macro_rules! dummy_index {
+    ($x:literal) => {
+        DummyIndex::from($x as isize)
+    };
+    ($x:expr) => {
+        DummyIndex::from($x)
     };
 }
 
+#[macro_export]
+macro_rules! dummy {
+    ($($x:expr),*) => {
+        &[$(dummy_index!($x),)*]
+    };
+}
+
+#[macro_export]
 macro_rules! dyn_dummy {
     ($($x:expr),*) => {
-        vec!($(DummyIndex::from($x),)*)
+        &vec!($(dummy_index!($x),)*)
     };
 }

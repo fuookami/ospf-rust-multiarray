@@ -1,13 +1,16 @@
+use crate::{dummy_vector::DummyIndex, OutOfShapeError};
+
 use super::{DynShape, MultiArrayView, Shape, Shape1, Shape2, Shape3, Shape4};
-use std::ops;
+use meta_programming::{indexed, next_index, Indexed};
+use std::ops::{Deref, Index, IndexMut};
 
 pub struct MultiArray<T: Sized, S: Shape> {
-    list: Vec<Option<Box<T>>>,
+    list: Vec<Option<T>>,
     shape: S,
 }
 
 impl<T: Sized, S: Shape> MultiArray<T, S> {
-    fn new(shape: S) -> Self {
+    pub fn new(shape: S) -> Self {
         Self {
             list: (0..shape.len()).map(|_| Option::None).collect(),
             shape: shape,
@@ -20,7 +23,7 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
     {
         Self {
             list: (0..shape.len())
-                .map(|_| Option::Some(Box::new(value.clone())))
+                .map(|_| Option::Some(value.clone()))
                 .collect(),
             shape: shape,
         }
@@ -29,17 +32,31 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
     fn new_by(shape: S, generator: &dyn Fn(usize) -> T) -> Self {
         Self {
             list: (0..shape.len())
-                .map(|index| Option::Some(Box::new(generator(index))))
+                .map(|index| Option::Some(generator(index)))
                 .collect(),
             shape: shape,
         }
     }
 
-    fn get<'a>(&'a self, vector: &S::DummyVectorType) -> Vec<Option<&'a Box<T>>> {}
-    fn map<'a>(&'a self, vector: &S::MapVectorType) -> MultiArrayView<'a, T, DynShape> {}
+    fn get<'a>(
+        &'a self,
+        vector: &S::DummyVectorType,
+    ) -> Result<Vec<Option<&'a T>>, OutOfShapeError> {
+        let mut ret = Vec::new();
+        let mut now = self.shape.zero();
+        for i in 0..self.shape.dimension() {
+            if let DummyIndex::Index(index) = vector[i] {
+                now[i] = self.shape.actual_index(i, index)
+                // todo
+            }
+        }
+        Ok(ret)
+    }
+
+    // fn map<'a>(&'a self, vector: &S::MapVectorType) -> MultiArrayView<'a, T, DynShape> {}
 }
 
-impl<T: Sized, S: Shape> ops::Index<usize> for MultiArray<T, S> {
+impl<T: Sized, S: Shape> Index<usize> for MultiArray<T, S> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -55,7 +72,7 @@ impl<T: Sized, S: Shape> ops::Index<usize> for MultiArray<T, S> {
     }
 }
 
-impl<T: Sized, S: Shape> ops::IndexMut<usize> for MultiArray<T, S> {
+impl<T: Sized, S: Shape> IndexMut<usize> for MultiArray<T, S> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match &mut self.list[index] {
             Option::Some(value) => value,
@@ -69,7 +86,7 @@ impl<T: Sized, S: Shape> ops::IndexMut<usize> for MultiArray<T, S> {
     }
 }
 
-impl<T: Sized, S: Shape> ops::Index<&S::VectorType> for MultiArray<T, S> {
+impl<T: Sized, S: Shape> Index<&S::VectorType> for MultiArray<T, S> {
     type Output = T;
 
     fn index(&self, vector: &S::VectorType) -> &Self::Output {
@@ -88,7 +105,7 @@ impl<T: Sized, S: Shape> ops::Index<&S::VectorType> for MultiArray<T, S> {
     }
 }
 
-impl<T: Sized, S: Shape> ops::IndexMut<&S::VectorType> for MultiArray<T, S> {
+impl<T: Sized, S: Shape> IndexMut<&S::VectorType> for MultiArray<T, S> {
     fn index_mut(&mut self, vector: &S::VectorType) -> &mut Self::Output {
         match self.shape.index(vector) {
             Result::Ok(index) => match &mut self.list[index] {
@@ -110,3 +127,26 @@ type MultiArray2<T> = MultiArray<T, Shape2>;
 type MultiArray3<T> = MultiArray<T, Shape3>;
 type MultiArray4<T> = MultiArray<T, Shape4>;
 type DynMultiArray<T> = MultiArray<T, DynShape>;
+
+macro_rules! vector_index {
+    ($x:literal) => {
+        $x as usize
+    };
+    ($x:expr) => {
+        $x as usize
+    };
+}
+
+#[macro_export]
+macro_rules! vector {
+    ($($x:expr),*) => {
+        &[$(vector_index!($x),)*]
+    };
+}
+
+#[macro_export]
+macro_rules! dyn_vector {
+    ($($x:expr),*) => {
+        vec!($(vector_index!($x),)*)
+    };
+}
