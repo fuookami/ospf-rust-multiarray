@@ -1,9 +1,9 @@
 use super::dummy_vector::DummyIndex;
 use super::map_vector::MapIndex;
 use std::fmt;
+use std::mem;
 use std::ops;
-use std::ops::Bound;
-use std::ops::Range;
+use std::slice;
 
 const DYN_DIMENSION: usize = usize::MAX;
 
@@ -81,9 +81,9 @@ impl fmt::Display for IndexCalculationError {
 
 pub trait Shape {
     const DIMENSION: usize;
-    type VectorType: ops::IndexMut<usize, Output = usize>;
-    type DummyVectorType: ops::IndexMut<usize, Output = DummyIndex>;
-    type MapVectorType: ops::IndexMut<usize, Output = MapIndex>;
+    type VectorType: ops::IndexMut<usize, Output=usize>;
+    type DummyVectorType: ops::IndexMut<usize, Output=DummyIndex>;
+    type MapVectorType: ops::IndexMut<usize, Output=MapIndex>;
 
     fn zero(&self) -> Self::VectorType;
 
@@ -144,47 +144,48 @@ pub trait Shape {
         }
     }
 
+
     fn vector(&self, mut index: usize) -> Self::VectorType {
         let mut vector = self.zero();
         for i in 0..self.dimension() {
-            let offest = self.offset_of_dimension(i).unwrap();
-            vector[i] = index / offest;
-            index = index % offest;
+            let offset = self.offset_of_dimension(i).unwrap();
+            vector[i] = index / offset;
+            index = index % offset;
         }
         vector
     }
 
-    fn iterator_of<'a>(
+    fn iterator_of(
         &self,
         dimension: usize,
         dummy_index: &DummyIndex,
-    ) -> Box<dyn Iterator<Item = usize>> {
+    ) -> Box<dyn Iterator<Item=usize>> {
         match dummy_index {
             DummyIndex::Index(index) => match self.actual_index(dimension, *index) {
-                Some(value) => Box::new(Range {
+                Some(value) => Box::new(ops::Range {
                     start: value,
                     end: value + 1,
                 }),
-                None => Box::new(Range { start: 0, end: 1 }),
+                None => Box::new(ops::Range { start: 0, end: 1 }),
             },
             DummyIndex::Range(range) => {
-                let lowerBound = match range.start_bound() {
-                    Bound::Included(value) => self.actual_index(dimension, value),
-                    Bound::Excluded(value) => self.actual_index(dimension, value - 1),
-                    Bound::Unbounded => Some(0),
+                let lower_bound = match range.start_bound() {
+                    ops::Bound::Included(value) => self.actual_index(dimension, value),
+                    ops::Bound::Excluded(value) => self.actual_index(dimension, value - 1),
+                    ops::Bound::Unbounded => Some(0),
                 };
-                let upperBound = match range.end_bound() {
-                    Bound::Included(value) => self.actual_index(dimension, value + 1),
-                    Bound::Excluded(value) => self.actual_index(dimension, value),
-                    Bound::Unbounded => Some(self.len_of_dimension(dimension).unwrap()),
+                let upper_bound = match range.end_bound() {
+                    ops::Bound::Included(value) => self.actual_index(dimension, value + 1),
+                    ops::Bound::Excluded(value) => self.actual_index(dimension, value),
+                    ops::Bound::Unbounded => Some(self.len_of_dimension(dimension).unwrap()),
                 };
-                if lowerBound.is_some() && upperBound.is_some() {
-                    Box::new(Range {
-                        start: lowerBound.unwrap(),
-                        end: upperBound.unwrap(),
+                if lower_bound.is_some() && upper_bound.is_some() {
+                    Box::new(ops::Range {
+                        start: lower_bound.unwrap(),
+                        end: upper_bound.unwrap(),
                     })
                 } else {
-                    Box::new(Range { start: 0, end: 1 })
+                    Box::new(ops::Range { start: 0, end: 1 })
                 }
             }
             DummyIndex::IndexArray(indexes) => {
@@ -223,8 +224,7 @@ pub trait Shape {
 pub(self) fn offset<const DIMENSION: usize>(
     shape: &[usize; DIMENSION],
 ) -> ([usize; DIMENSION], usize) {
-    let mut offset: [usize; DIMENSION];
-    offset.fill(0);
+    let mut offset: [usize; DIMENSION] = unsafe { mem::zeroed() };
 
     offset[shape.len() - 1] = 1;
     let mut len = 1;
@@ -236,6 +236,7 @@ pub(self) fn offset<const DIMENSION: usize>(
     (offset, len)
 }
 
+#[derive(Clone, Copy)]
 pub struct Shape1 {
     pub(self) shape: [usize; 1],
 }
@@ -271,6 +272,7 @@ impl Shape for Shape1 {
 
 macro_rules! shape {
     ($type:ident, $dim:expr) => {
+        #[derive(Clone, Copy)]
         pub struct $type {
             pub(self) shape: [usize; $dim],
             pub(self) offset: [usize; $dim],
@@ -278,7 +280,7 @@ macro_rules! shape {
         }
 
         impl $type {
-            fn new(shape: [usize; $dim]) -> Self {
+            pub fn new(shape: [usize; $dim]) -> Self {
                 let (offset, len) = offset(&shape);
                 Self {
                     shape: shape,
@@ -295,9 +297,7 @@ macro_rules! shape {
             type MapVectorType = [MapIndex; $dim];
 
             fn zero(&self) -> Self::VectorType {
-                let mut ret: [usize; $dim];
-                ret.fill(0);
-                ret
+                unsafe { mem::zeroed() }
             }
 
             fn len(&self) -> usize {
@@ -342,7 +342,7 @@ pub struct DynShape {
 }
 
 impl DynShape {
-    fn new(shape: Vec<usize>) -> Self {
+    pub fn new(shape: Vec<usize>) -> Self {
         let (offset, len) = Self::offset(&shape);
         Self {
             shape: shape,

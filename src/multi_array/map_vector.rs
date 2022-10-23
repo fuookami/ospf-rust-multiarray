@@ -34,7 +34,7 @@ const _20: PlaceHolder = PlaceHolder { index: 20 };
 pub(super) enum MapIndex {
     Index(isize),
     Range(Box<dyn DummyIndexRange>),
-    IndexArray(Box<dyn Iterator<Item = isize>>),
+    IndexArray(Box<dyn Iterator<Item=isize>>),
     Map(PlaceHolder),
 }
 
