@@ -3,7 +3,6 @@ use super::map_vector::MapIndex;
 use std::fmt;
 use std::mem;
 use std::ops;
-use std::slice;
 
 const DYN_DIMENSION: usize = usize::MAX;
 
@@ -159,7 +158,7 @@ pub trait Shape {
         &self,
         dimension: usize,
         dummy_index: &DummyIndex,
-    ) -> Box<dyn Iterator<Item=usize>> {
+    ) -> Box<dyn Iterator<Item = usize>> {
         match dummy_index {
             DummyIndex::Index(index) => match self.actual_index(dimension, *index) {
                 Some(value) => Box::new(ops::Range {

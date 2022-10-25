@@ -1,9 +1,7 @@
 use super::dummy_vector::DummyIndexRange;
 use super::Shape;
 use std::cell::RefCell;
-use std::ops::{
-    Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
-};
+use std::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 
 pub struct PlaceHolder {
     index: usize,
@@ -34,7 +32,7 @@ const _20: PlaceHolder = PlaceHolder { index: 20 };
 pub(super) enum MapIndex {
     Index(isize),
     Range(Box<dyn DummyIndexRange>),
-    IndexArray(Box<dyn Iterator<Item=isize>>),
+    IndexArray(Box<dyn Iterator<Item = isize>>),
     Map(PlaceHolder),
 }
 

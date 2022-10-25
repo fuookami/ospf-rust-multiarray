@@ -1,8 +1,6 @@
-use crate::{dummy, dummy_vector::{DummyIndex, DummyAccessPolicy}, OutOfShapeError};
-
-use super::{DynShape, MultiArrayView, Shape, Shape1, Shape2, Shape3, Shape4};
-use meta_programming::{indexed, next_index, Indexed};
-use std::ops::{Deref, Index, IndexMut};
+use crate::{dummy_vector::{DummyIndex, DummyAccessPolicy}, OutOfShapeError};
+use super::{DynShape, Shape, Shape1, Shape2, Shape3, Shape4};
+use std::ops::{Index, IndexMut};
 
 pub struct MultiArray<T: Sized, S: Shape> {
     pub(self) list: Vec<Option<T>>,
@@ -41,24 +39,16 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
         }
     }
 
-    pub fn get(
-        &self,
+    pub fn get<'a>(
+        &'a self,
         vector: S::DummyVectorType,
-    ) -> Result<Vec<Option<&T>>, OutOfShapeError>
+    ) -> Result<Vec<&Option<T>>, OutOfShapeError>
         where
-            S::DummyVectorType: Index<usize, Output=DummyIndex>,
-            S::DummyVectorType: IntoIterator<Item=DummyIndex>,
+            S::DummyVectorType: IndexMut<usize, Output=DummyIndex>,
+            &'a S::DummyVectorType: IntoIterator<Item=&'a DummyIndex>
     {
-        let mut policy = DummyAccessPolicy()
-
-        let ret = Vec::new();
-        let mut now = self.shape.zero();
-        for i in 0..self.shape.dimension() {
-            if let DummyIndex::Index(index) = vector[i] {
-                now[i] = self.shape.actual_index(i, index)
-            }
-        }
-        Ok(ret)
+        let mut policy = DummyAccessPolicy::new(&self.list, vector, &self.shape);
+        Ok(policy.iter().collect())
     }
 
     // fn map<'a>(&'a self, vector: &S::MapVectorType) -> MultiArrayView<'a, T, DynShape> {}
@@ -162,7 +152,7 @@ macro_rules! dyn_vector {
 #[test]
 fn fuck() {
     let vector = MultiArray2::<u64>::new_by(Shape2::new([10, 11]), |i: usize| i as u64);
-    for val in &vector.get(dummy!(0, ..)).unwrap() {
+    for val in vector.get(dummy!(0, ..)).unwrap() {
         print!("{}, ", val.unwrap())
     }
 }

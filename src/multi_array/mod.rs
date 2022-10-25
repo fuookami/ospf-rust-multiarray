@@ -1,4 +1,6 @@
+#[macro_use]
 pub mod dummy_vector;
+#[macro_use]
 pub mod map_vector;
 pub mod multi_array;
 pub mod multi_array_view;

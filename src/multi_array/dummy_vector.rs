@@ -1,7 +1,5 @@
-use crate::DynShape;
-
-use super::Shape;
-use std::cell::RefCell;
+use super::{DynShape, Shape};
+use meta_programming::GeneratorIterator;
 use std::ops::{
     Bound, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
     RangeToInclusive,
@@ -14,8 +12,8 @@ pub(super) trait DummyIndexRange {
 }
 
 impl<T> DummyIndexRange for T
-    where
-        T: RangeBounds<isize>,
+where
+    T: RangeBounds<isize>,
 {
     fn start_bound(&self) -> Bound<isize> {
         match RangeBounds::start_bound(self) {
@@ -41,7 +39,7 @@ impl<T> DummyIndexRange for T
 pub(super) enum DummyIndex {
     Index(isize),
     Range(Box<dyn DummyIndexRange>),
-    IndexArray(Box<dyn Iterator<Item=isize>>),
+    IndexArray(Box<dyn Iterator<Item = isize>>),
 }
 
 impl DummyIndex {
@@ -124,114 +122,65 @@ impl From<&[isize]> for DummyIndex {
     }
 }
 
-pub(super) struct DummyAccessPolicy<'a, T: Sized, S: Shape> {
+pub(crate) struct DummyAccessPolicy<'a, T: Sized, S: Shape> {
     pub(self) container: &'a Vec<Option<T>>,
-    pub(self) vector: &'a S::DummyVectorType,
-    pub(self) shape: S,
-    pub(self) now: S::VectorType,
-    pub(self) continuous_base: Vec<usize>,
-    pub(self) continuous_offset_indexes: Vec<usize>,
-    pub(self) discrete_offset_indexes: Vec<usize>,
-    pub(self) flag: bool,
+    pub(self) vector: S::DummyVectorType,
+    pub(self) shape: &'a S,
 }
 
 impl<'a, T: Sized, S: Shape> DummyAccessPolicy<'a, T, S>
-    where
-        &'a S::DummyVectorType: IndexMut<usize, Output=&'a DummyIndex>,
-        &'a S::DummyVectorType: IntoIterator<Item=&'a DummyIndex>,
+where
+    S::DummyVectorType: IndexMut<usize, Output = DummyIndex>,
+    &'a S::DummyVectorType: IntoIterator<Item = &'a DummyIndex>,
 {
-    fn new(container: &'a Vec<Option<T>>, vector: &'a S::DummyVectorType, shape: S) -> Self {
-        let continuous_base = Self::continuous_dummy_base(&shape, vector);
-        let continuous_offset_indexes = Self::continuous_dummy_indexes(&shape, vector);
-        let discrete_offset_indexes = Self::discrete_dummy_indexes(&shape, vector);
+    pub(crate) fn new(
+        container: &'a Vec<Option<T>>,
+        vector: S::DummyVectorType,
+        shape: &'a S,
+    ) -> Self {
         Self {
             container: container,
             vector: vector,
             shape: shape,
-            now: shape.zero(),
-            continuous_base: continuous_base,
-            continuous_offset_indexes: continuous_offset_indexes,
-            discrete_offset_indexes: discrete_offset_indexes
         }
     }
 
-    pub(self) fn dummy_dimension(
-        dummy_vector: &S::DummyVectorType,
-        predicate: &dyn Fn(&DummyIndex) -> bool,
-    ) -> usize {
-        dummy_vector.into_iter().filter(|x| predicate(x)).count()
+    pub fn iter(&'a self) -> impl Iterator<Item = &'a Option<T>> + 'a {
+        GeneratorIterator(move || {
+            let mut iterators: Vec<Box<dyn Iterator<Item = usize>>> = self
+                .vector
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| self.shape.iterator_of(i, v))
+                .collect();
+            let mut now = self.shape.zero();
+
+            while self.next(&mut now, &mut iterators) {
+                yield self.container[self.shape.index(&now).unwrap()]
+            }
+
+            return;
+        })
     }
 
-    pub(self) fn continuous_dummy_dimension(dummy_vector: &S::DummyVectorType) -> usize {
-        Self::dummy_dimension(dummy_vector, &DummyIndex::continuous)
-    }
-
-    pub(self) fn discrete_dummy_dimension(dummy_vector: &S::DummyVectorType) -> usize {
-        Self::dummy_dimension(dummy_vector, &DummyIndex::discrete)
-    }
-
-    pub(self) fn dummy_indexes(
-        shape: &S,
-        dummy_vector: &S::DummyVectorType,
-        predicate: &dyn Fn(&DummyIndex) -> bool,
-    ) -> Vec<usize> {
-        let dimension = Self::dummy_dimension(dummy_vector, predicate);
-        let mut ret: Vec<usize> = (0..dimension).map(|_| 0).collect();
-        if dimension != 0 {
-            let mut j = 0;
-            for i in 0..shape.dimension() {
-                if predicate(dummy_vector[i]) {
-                    ret[j] = i;
-                    j += 1;
+    pub(self) fn next(
+        &self,
+        now: &mut S::VectorType,
+        iterators: &mut Vec<Box<dyn Iterator<Item = usize>>>,
+    ) -> bool {
+        for i in (0..iterators.len()).rev() {
+            match iterators[i].next() {
+                Some(value) => {
+                    now[i] = value;
+                    return true;
+                }
+                None => {
+                    iterators[i] = self.shape.iterator_of(i, &self.vector[i]);
+                    now[i] = iterators[i].next().unwrap();
                 }
             }
         }
-        ret
-    }
-
-    pub(self) fn continuous_dummy_indexes(
-        shape: &S,
-        dummy_vector: &S::DummyVectorType,
-    ) -> Vec<usize> {
-        Self::dummy_indexes(shape, dummy_vector, &DummyIndex::continuous)
-    }
-
-    pub(self) fn discrete_dummy_indexes(shape: &S, dummy_vector: &S::DummyVectorType) -> Vec<usize> {
-        Self::dummy_indexes(shape, dummy_vector, &DummyIndex::discrete)
-    }
-
-    pub(self) fn continuous_dummy_base(shape: &S, dummy_vector: &S::DummyVectorType) -> Vec<usize> {
-        let dimension = Self::continuous_dummy_dimension(dummy_vector);
-        let mut ret = Vec::with_capacity(dimension);
-        ret.resize(dimension, 0);
-        if dimension != 0 {
-            let mut j = 0;
-            for i in 0..shape.dimension() {
-                if dummy_vector[i].continuous() {
-                    ret[j] = i;
-                    j += 1;
-                }
-            }
-        }
-        ret
-    }
-}
-
-impl<'a, T: Sized, S: Shape> Iterator for DummyAccessPolicy<'a, T, S> {
-    type Item = Vec<&'a Option<T>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if !self.flag {
-            None
-        }
-        else {
-            let mut ret = Vec::new();
-            for i in 0..self.continuous_offset_indexes.len() {
-                self.now[self.continuous_offset_indexes[i]] = self.continuous_base[i] + self.continuous_offset_indexes[i]
-            }
-            // todo: impl it
-            Some(ret)
-        }
+        return false;
     }
 }
 
