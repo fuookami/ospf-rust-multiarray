@@ -1,5 +1,8 @@
-use crate::{dummy_vector::{DummyIndex, DummyAccessPolicy}, OutOfShapeError};
 use super::{DynShape, Shape, Shape1, Shape2, Shape3, Shape4};
+use crate::{
+    dummy_vector::{DummyAccessPolicy, DummyIndex},
+    DummyShape, OutOfShapeError,
+};
 use std::ops::{Index, IndexMut};
 
 pub struct MultiArray<T: Sized, S: Shape> {
@@ -16,8 +19,8 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
     }
 
     pub fn new_with(shape: S, value: T) -> Self
-        where
-            T: Clone,
+    where
+        T: Clone,
     {
         Self {
             list: (0..shape.len())
@@ -28,8 +31,8 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
     }
 
     pub fn new_by<G>(shape: S, generator: G) -> Self
-        where
-            G: Fn(usize) -> T,
+    where
+        G: Fn(usize) -> T,
     {
         Self {
             list: (0..shape.len())
@@ -42,13 +45,16 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
     pub fn get<'a>(
         &'a self,
         vector: S::DummyVectorType,
-    ) -> Result<Vec<&Option<T>>, OutOfShapeError>
-        where
-            S::DummyVectorType: IndexMut<usize, Output=DummyIndex>,
-            &'a S::DummyVectorType: IntoIterator<Item=&'a DummyIndex>
+    ) -> Result<Vec<&'a Option<T>>, OutOfShapeError>
+    where
+        S: DummyShape<'a>,
+        S::DummyVectorType: IndexMut<usize, Output = DummyIndex<'a>>,
+        &'a S::DummyVectorType: IntoIterator<Item = &'a DummyIndex<'a>>,
     {
-        let mut policy = DummyAccessPolicy::new(&self.list, vector, &self.shape);
-        Ok(policy.iter().collect())
+        let policy = DummyAccessPolicy::new(&self.list, vector, &self.shape);
+        let iter = policy.iter();
+        let ret = iter.collect();
+        Ok(ret)
     }
 
     // fn map<'a>(&'a self, vector: &S::MapVectorType) -> MultiArrayView<'a, T, DynShape> {}

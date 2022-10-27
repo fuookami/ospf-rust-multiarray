@@ -29,78 +29,78 @@ const _18: PlaceHolder = PlaceHolder { index: 18 };
 const _19: PlaceHolder = PlaceHolder { index: 19 };
 const _20: PlaceHolder = PlaceHolder { index: 20 };
 
-pub(super) enum MapIndex {
+pub(super) enum MapIndex<'a> {
     Index(isize),
     Range(Box<dyn DummyIndexRange>),
-    IndexArray(Box<dyn Iterator<Item = isize>>),
+    IndexArray(Box<dyn Iterator<Item = isize> + 'a>),
     Map(PlaceHolder),
 }
 
-impl From<isize> for MapIndex {
+impl<'a> From<isize> for MapIndex<'a> {
     fn from(value: isize) -> Self {
         Self::Index(value)
     }
 }
 
-impl From<usize> for MapIndex {
+impl<'a> From<usize> for MapIndex<'a> {
     fn from(value: usize) -> Self {
         Self::Index(value as isize)
     }
 }
 
-impl From<Range<isize>> for MapIndex {
+impl<'a> From<Range<isize>> for MapIndex<'a> {
     fn from(range: Range<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl From<RangeFrom<isize>> for MapIndex {
+impl<'a> From<RangeFrom<isize>> for MapIndex<'a> {
     fn from(range: RangeFrom<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl From<RangeInclusive<isize>> for MapIndex {
+impl<'a> From<RangeInclusive<isize>> for MapIndex<'a> {
     fn from(range: RangeInclusive<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl From<RangeTo<isize>> for MapIndex {
+impl<'a> From<RangeTo<isize>> for MapIndex<'a> {
     fn from(range: RangeTo<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl From<RangeToInclusive<isize>> for MapIndex {
+impl<'a> From<RangeToInclusive<isize>> for MapIndex<'a> {
     fn from(range: RangeToInclusive<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl From<RangeFull> for MapIndex {
+impl<'a> From<RangeFull> for MapIndex<'a> {
     fn from(range: RangeFull) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl From<&[isize]> for MapIndex {
-    fn from(indexes: &[isize]) -> Self {
+impl<'a> From<&'a [isize]> for MapIndex<'a> {
+    fn from(indexes: &'a [isize]) -> Self {
         Self::IndexArray(Box::new(indexes.iter().map(|index| *index)))
     }
 }
 
-impl From<PlaceHolder> for MapIndex {
+impl<'a> From<PlaceHolder> for MapIndex<'a> {
     fn from(holder: PlaceHolder) -> Self {
         Self::Map(holder)
     }
 }
 
-pub(super) struct MapAccessPolicy<'a, S: Shape> {
-    vector: &'a S::MapVectorType,
-    shape: S,
-    now: RefCell<S::VectorType>,
-}
+// pub(super) struct MapAccessPolicy<'a, S: Shape> {
+//     vector: &'a S::MapVectorType,
+//     shape: S,
+//     now: RefCell<S::VectorType>,
+// }
 
 macro_rules! map_index {
     ($x:literal) => {

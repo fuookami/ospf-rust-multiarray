@@ -80,9 +80,7 @@ impl fmt::Display for IndexCalculationError {
 
 pub trait Shape {
     const DIMENSION: usize;
-    type VectorType: ops::IndexMut<usize, Output=usize>;
-    type DummyVectorType: ops::IndexMut<usize, Output=DummyIndex>;
-    type MapVectorType: ops::IndexMut<usize, Output=MapIndex>;
+    type VectorType: ops::IndexMut<usize, Output = usize>;
 
     fn zero(&self) -> Self::VectorType;
 
@@ -143,7 +141,6 @@ pub trait Shape {
         }
     }
 
-
     fn vector(&self, mut index: usize) -> Self::VectorType {
         let mut vector = self.zero();
         for i in 0..self.dimension() {
@@ -154,11 +151,41 @@ pub trait Shape {
         vector
     }
 
+    fn next_vector(&self, vector: &mut Self::VectorType) -> bool {
+        let mut carry = false;
+        vector[self.dimension() - 1] += 1;
+
+        for i in (0..self.dimension()).rev() {
+            if carry {
+                vector[i] += 1;
+                carry = false;
+            }
+            if vector[i] == self.len_of_dimension(i).unwrap() {
+                vector[i] = 0;
+                carry = true;
+            }
+        }
+        !carry
+    }
+
+    fn actual_index(&self, dimension: usize, index: isize) -> Option<usize> {
+        let len = self.len_of_dimension(dimension).unwrap();
+        if index >= (len as isize) || index < -(len as isize) {
+            None
+        } else {
+            Some((index % (len as isize)) as usize)
+        }
+    }
+}
+
+pub trait DummyShape<'a>: Shape {
+    type DummyVectorType: ops::IndexMut<usize, Output = DummyIndex<'a>>;
+
     fn iterator_of(
-        &self,
+        &'a self,
         dimension: usize,
-        dummy_index: &DummyIndex,
-    ) -> Box<dyn Iterator<Item = usize>> {
+        dummy_index: &DummyIndex<'a>,
+    ) -> Box<dyn Iterator<Item = usize> + 'a> {
         match dummy_index {
             DummyIndex::Index(index) => match self.actual_index(dimension, *index) {
                 Some(value) => Box::new(ops::Range {
@@ -187,35 +214,11 @@ pub trait Shape {
                     Box::new(ops::Range { start: 0, end: 1 })
                 }
             }
-            DummyIndex::IndexArray(indexes) => {
-                Box::new(indexes.filter_map(|index| self.actual_index(dimension, index)))
-            }
-        }
-    }
-
-    fn next_vector(&self, vector: &mut Self::VectorType) -> bool {
-        let mut carry = false;
-        vector[self.dimension() - 1] += 1;
-
-        for i in (0..self.dimension()).rev() {
-            if carry {
-                vector[i] += 1;
-                carry = false;
-            }
-            if vector[i] == self.len_of_dimension(i).unwrap() {
-                vector[i] = 0;
-                carry = true;
-            }
-        }
-        !carry
-    }
-
-    fn actual_index(&self, dimension: usize, index: isize) -> Option<usize> {
-        let len = self.len_of_dimension(dimension).unwrap();
-        if index >= (len as isize) || index < -(len as isize) {
-            None
-        } else {
-            Some((index % (len as isize)) as usize)
+            DummyIndex::IndexArray(indexes) => Box::new(
+                indexes
+                    .clone()
+                    .filter_map(move |index| self.actual_index(dimension, index)),
+            ),
         }
     }
 }
@@ -249,8 +252,6 @@ impl Shape1 {
 impl Shape for Shape1 {
     const DIMENSION: usize = 1;
     type VectorType = [usize; 1];
-    type DummyVectorType = [DummyIndex; 1];
-    type MapVectorType = [MapIndex; 1];
 
     fn zero(&self) -> Self::VectorType {
         [0]
@@ -267,6 +268,10 @@ impl Shape for Shape1 {
     fn offset(&self) -> &[usize] {
         &self.shape
     }
+}
+
+impl<'a> DummyShape<'a> for Shape1 {
+    type DummyVectorType = [DummyIndex<'a>; 1];
 }
 
 macro_rules! shape {
@@ -292,8 +297,6 @@ macro_rules! shape {
         impl Shape for $type {
             const DIMENSION: usize = $dim;
             type VectorType = [usize; $dim];
-            type DummyVectorType = [DummyIndex; $dim];
-            type MapVectorType = [MapIndex; $dim];
 
             fn zero(&self) -> Self::VectorType {
                 unsafe { mem::zeroed() }
@@ -310,6 +313,10 @@ macro_rules! shape {
             fn offset(&self) -> &[usize] {
                 &self.offset
             }
+        }
+
+        impl<'a> DummyShape<'a> for $type {
+            type DummyVectorType = [DummyIndex<'a>; $dim];
         }
     };
 }
@@ -366,8 +373,6 @@ impl DynShape {
 impl Shape for DynShape {
     const DIMENSION: usize = DYN_DIMENSION;
     type VectorType = Vec<usize>;
-    type DummyVectorType = Vec<DummyIndex>;
-    type MapVectorType = Vec<MapIndex>;
 
     fn zero(&self) -> Self::VectorType {
         (0..self.shape.len()).map(|_| 0).collect()
@@ -392,4 +397,8 @@ impl Shape for DynShape {
     fn offset(&self) -> &[usize] {
         &self.offset
     }
+}
+
+impl<'a> DummyShape<'a> for DynShape {
+    type DummyVectorType = Vec<DummyIndex<'a>>;
 }
