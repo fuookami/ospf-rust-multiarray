@@ -1,4 +1,4 @@
-use super::{MultiArray, Shape};
+use crate::{MultiArray, Shape};
 
 pub struct MultiArrayView<'a, T: Sized, S: Shape> {
     pub(self) parent: &'a MultiArray<T, S>,

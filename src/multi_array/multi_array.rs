@@ -1,8 +1,5 @@
-use super::{DynShape, Shape, Shape1, Shape2, Shape3, Shape4};
-use crate::{
-    dummy_vector::{DummyAccessPolicy, DummyIndex},
-    DummyShape, OutOfShapeError,
-};
+use crate::dummy_vector::*;
+use crate::*;
 use std::ops::{Index, IndexMut};
 
 pub struct MultiArray<T: Sized, S: Shape> {
@@ -42,18 +39,21 @@ impl<T: Sized, S: Shape> MultiArray<T, S> {
         }
     }
 
-    pub fn get<'a>(
-        &'a self,
-        vector: S::DummyVectorType,
-    ) -> Result<Vec<&'a Option<T>>, OutOfShapeError>
-    where
-        S: DummyShape<'a>,
-        S::DummyVectorType: IndexMut<usize, Output = DummyIndex<'a>>,
-        &'a S::DummyVectorType: IntoIterator<Item = &'a DummyIndex<'a>>,
-    {
-        let policy = DummyAccessPolicy::new(&self.list, vector, &self.shape);
-        let iter = policy.iter();
-        let ret = iter.collect();
+    pub fn get(&self, vector: S::DummyVectorType) -> Result<Vec<&Option<T>>, OutOfShapeError> {
+        let mut ret = Vec::new();
+        let policy = DummyAccessPolicy::new(&vector, &self.shape);
+        let mut iter = policy.iter();
+        loop {
+            match iter.next() {
+                Some(vector) => {
+                    let index = self.shape.index(vector).unwrap();
+                    ret.push(&self.list[index]);
+                }
+                None => {
+                    break;
+                }
+            }
+        }
         Ok(ret)
     }
 
@@ -130,6 +130,22 @@ type MultiArray1<T> = MultiArray<T, Shape1>;
 type MultiArray2<T> = MultiArray<T, Shape2>;
 type MultiArray3<T> = MultiArray<T, Shape3>;
 type MultiArray4<T> = MultiArray<T, Shape4>;
+type MultiArray5<T> = MultiArray<T, Shape5>;
+type MultiArray6<T> = MultiArray<T, Shape6>;
+type MultiArray7<T> = MultiArray<T, Shape7>;
+type MultiArray8<T> = MultiArray<T, Shape8>;
+type MultiArray9<T> = MultiArray<T, Shape9>;
+type MultiArray10<T> = MultiArray<T, Shape10>;
+type MultiArray11<T> = MultiArray<T, Shape11>;
+type MultiArray12<T> = MultiArray<T, Shape12>;
+type MultiArray13<T> = MultiArray<T, Shape13>;
+type MultiArray14<T> = MultiArray<T, Shape14>;
+type MultiArray15<T> = MultiArray<T, Shape15>;
+type MultiArray16<T> = MultiArray<T, Shape16>;
+type MultiArray17<T> = MultiArray<T, Shape17>;
+type MultiArray18<T> = MultiArray<T, Shape18>;
+type MultiArray19<T> = MultiArray<T, Shape19>;
+type MultiArray20<T> = MultiArray<T, Shape20>;
 type DynMultiArray<T> = MultiArray<T, DynShape>;
 
 macro_rules! vector_index {
@@ -153,12 +169,4 @@ macro_rules! dyn_vector {
     ($($x:expr),*) => {
         vec!($(vector_index!($x),)*)
     };
-}
-
-#[test]
-fn fuck() {
-    let vector = MultiArray2::<u64>::new_by(Shape2::new([10, 11]), |i: usize| i as u64);
-    for val in vector.get(dummy!(0, ..)).unwrap() {
-        print!("{}, ", val.unwrap())
-    }
 }

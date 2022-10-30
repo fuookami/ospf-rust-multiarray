@@ -1,11 +1,9 @@
-use super::DummyShape;
-use meta_programming::GeneratorIterator;
+use crate::Shape;
 use std::ops::{
-    Bound, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
-    RangeToInclusive,
+    Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-pub(super) trait DummyIndexRange {
+pub trait DummyIndexRange {
     fn start_bound(&self) -> Bound<isize>;
     fn end_bound(&self) -> Bound<isize>;
     fn contains(&self, v: isize) -> bool;
@@ -36,163 +34,179 @@ where
     }
 }
 
-pub(super) enum DummyIndex<'a> {
+enum DummyIndexIterator {
+    Continuous(Range<usize>),
+    Discrete(Vec<usize>),
+}
+
+impl DummyIndexIterator {
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = usize> + 'a> {
+        match self {
+            DummyIndexIterator::Continuous(range) => Box::new(range.clone().into_iter()),
+            DummyIndexIterator::Discrete(indexes) => Box::new(indexes.into_iter().map(|x| *x)),
+        }
+    }
+}
+
+pub enum DummyIndex {
     Index(isize),
     Range(Box<dyn DummyIndexRange>),
-    IndexArray(Box<dyn Iterator<Item = isize> + 'a>),
+    IndexArray(Vec<isize>),
 }
 
-impl<'a> DummyIndex<'a> {
-    fn dummy(&self) -> bool {
-        if let DummyIndex::Index(_) = self {
-            false
-        } else {
-            true
-        }
-    }
-
-    fn continuous(&self) -> bool {
-        if let DummyIndex::Range(_) = self {
-            true
-        } else {
-            false
-        }
-    }
-
-    fn discrete(&self) -> bool {
-        if let DummyIndex::IndexArray(_) = self {
-            true
-        } else {
-            false
+impl DummyIndex {
+    fn iterator_of<S: Shape>(&self, shape: &S, dimension: usize) -> DummyIndexIterator {
+        match self {
+            DummyIndex::Index(index) => match shape.actual_index(dimension, *index) {
+                Some(value) => DummyIndexIterator::Continuous(Range {
+                    start: value,
+                    end: value + 1,
+                }),
+                None => DummyIndexIterator::Continuous(Range { start: 0, end: 1 }),
+            },
+            DummyIndex::Range(range) => {
+                let lower_bound = match range.start_bound() {
+                    Bound::Included(value) => shape.actual_index(dimension, value),
+                    Bound::Excluded(value) => shape.actual_index(dimension, value - 1),
+                    Bound::Unbounded => Some(0),
+                };
+                let upper_bound = match range.end_bound() {
+                    Bound::Included(value) => shape.actual_index(dimension, value + 1),
+                    Bound::Excluded(value) => shape.actual_index(dimension, value),
+                    Bound::Unbounded => Some(shape.len_of_dimension(dimension).unwrap()),
+                };
+                if lower_bound.is_some() && upper_bound.is_some() {
+                    DummyIndexIterator::Continuous(Range {
+                        start: lower_bound.unwrap(),
+                        end: upper_bound.unwrap(),
+                    })
+                } else {
+                    DummyIndexIterator::Continuous(Range { start: 0, end: 1 })
+                }
+            }
+            DummyIndex::IndexArray(indexes) => DummyIndexIterator::Discrete(
+                indexes
+                    .iter()
+                    .filter_map(move |index| shape.actual_index(dimension, *index))
+                    .collect(),
+            ),
         }
     }
 }
 
-impl<'a> From<isize> for DummyIndex<'a> {
+impl From<isize> for DummyIndex {
     fn from(value: isize) -> Self {
         Self::Index(value)
     }
 }
 
-impl<'a> From<usize> for DummyIndex<'a> {
+impl From<usize> for DummyIndex {
     fn from(value: usize) -> Self {
         Self::Index(value as isize)
     }
 }
 
-impl<'a> From<Range<isize>> for DummyIndex<'a> {
+impl From<Range<isize>> for DummyIndex {
     fn from(range: Range<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeFrom<isize>> for DummyIndex<'a> {
+impl From<RangeFrom<isize>> for DummyIndex {
     fn from(range: RangeFrom<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeInclusive<isize>> for DummyIndex<'a> {
+impl From<RangeInclusive<isize>> for DummyIndex {
     fn from(range: RangeInclusive<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeTo<isize>> for DummyIndex<'a> {
+impl From<RangeTo<isize>> for DummyIndex {
     fn from(range: RangeTo<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeToInclusive<isize>> for DummyIndex<'a> {
+impl From<RangeToInclusive<isize>> for DummyIndex {
     fn from(range: RangeToInclusive<isize>) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<RangeFull> for DummyIndex<'a> {
+impl From<RangeFull> for DummyIndex {
     fn from(range: RangeFull) -> Self {
         Self::Range(Box::new(range))
     }
 }
 
-impl<'a> From<&'a [isize]> for DummyIndex<'a> {
-    fn from(indexes: &'a [isize]) -> Self {
-        Self::IndexArray(Box::new(indexes.iter().map(|index| *index)))
+impl From<&[isize]> for DummyIndex {
+    fn from(indexes: &[isize]) -> Self {
+        Self::IndexArray(indexes.to_vec())
     }
 }
 
-pub(crate) struct DummyAccessPolicy<'a, T: Sized, S: DummyShape<'a>> {
-    pub(self) container: &'a Vec<Option<T>>,
-    pub(self) vector: S::DummyVectorType,
+impl From<Vec<isize>> for DummyIndex {
+    fn from(indexes: Vec<isize>) -> Self {
+        Self::IndexArray(indexes)
+    }
+}
+
+pub(crate) struct DummyAccessPolicy<'a, S: Shape> {
     pub(self) shape: &'a S,
+    pub(self) iterators: Vec<DummyIndexIterator>,
 }
 
-struct DummyAccessIterator<'a> {
-    iterators: Vec<Box<dyn Iterator<Item = usize> + 'a>>,
+impl<'a, 'b, S: Shape> DummyAccessPolicy<'a, S> {
+    pub(crate) fn new(vector: &'a S::DummyVectorType, shape: &'a S) -> Self {
+        Self {
+            shape: shape,
+            iterators: (0..shape.dimension())
+                .map(|i| vector[i].iterator_of(shape, i))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn iter(&'b self) -> DummyAccessIterator<'a, 'b, S> {
+        DummyAccessIterator::new(self)
+    }
 }
 
-impl<'a> DummyAccessIterator<'a> {
-    pub(self) fn next<S: DummyShape<'a>>(
-        &mut self,
-        now: &mut S::VectorType,
-        shape: &'a S,
-        vector: &S::DummyVectorType,
-    ) -> bool {
+pub(crate) struct DummyAccessIterator<'a, 'b, S: Shape> {
+    pub(self) policy: *const DummyAccessPolicy<'a, S>,
+    pub(self) iterators: Vec<Box<dyn Iterator<Item = usize> + 'b>>,
+    pub(crate) now: S::VectorType,
+}
+
+impl<'a, 'b, S: Shape> DummyAccessIterator<'a, 'b, S> {
+    pub(crate) fn new(policy: &'b DummyAccessPolicy<'a, S>) -> Self {
+        let mut ret = Self {
+            policy: policy,
+            iterators: policy.iterators.iter().map(|iter| iter.iter()).collect(),
+            now: policy.shape.zero(),
+        };
+        for i in 0..(ret.iterators.len() - 1) {
+            ret.now[i] = ret.iterators[i].next().unwrap();
+        }
+        ret
+    }
+
+    pub(crate) fn next(&mut self) -> Option<&S::VectorType> {
         for i in (0..self.iterators.len()).rev() {
             match self.iterators[i].next() {
                 Some(value) => {
-                    now[i] = value;
-                    return true;
+                    self.now[i] = value;
+                    return Some(&self.now);
                 }
-                None => {
-                    self.iterators[i] = shape.iterator_of(i, &vector[i]);
-                    now[i] = self.iterators[i].next().unwrap();
-                }
+                None => unsafe {
+                    self.iterators[i] = (*self.policy).iterators[i].iter();
+                    self.now[i] = self.iterators[i].next().unwrap();
+                },
             }
         }
-        return false;
-    }
-}
-
-impl<'a, T: Sized, S: DummyShape<'a>> DummyAccessPolicy<'a, T, S>
-where
-    S::DummyVectorType: IndexMut<usize, Output = DummyIndex<'a>>,
-    &'a S::DummyVectorType: IntoIterator<Item = &'a DummyIndex<'a>>,
-{
-    pub(crate) fn new(
-        container: &'a Vec<Option<T>>,
-        vector: S::DummyVectorType,
-        shape: &'a S,
-    ) -> Self {
-        Self {
-            container: container,
-            vector: vector,
-            shape: shape,
-        }
-    }
-
-    pub fn iter<'b>(&'a self) -> impl Iterator<Item = &'a Option<T>> + 'b
-    where
-        'a: 'b,
-    {
-        GeneratorIterator(move || {
-            let mut iter = DummyAccessIterator {
-                iterators: self
-                    .vector
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, v)| self.shape.iterator_of(i, v))
-                    .collect(),
-            };
-            let mut now = self.shape.zero();
-
-            while iter.next(&mut now, self.shape, &self.vector) {
-                yield &self.container[self.shape.index(&now).unwrap()]
-            }
-
-            return;
-        })
+        return None;
     }
 }
 

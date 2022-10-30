@@ -1,6 +1,4 @@
-use super::dummy_vector::DummyIndexRange;
-use super::Shape;
-use std::cell::RefCell;
+use crate::dummy_vector::DummyIndexRange;
 use std::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 
 pub struct PlaceHolder {

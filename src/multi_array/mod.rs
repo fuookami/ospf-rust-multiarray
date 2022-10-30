@@ -6,9 +6,7 @@ pub mod multi_array;
 pub mod multi_array_view;
 pub mod shape;
 
-pub use multi_array::MultiArray;
-pub use multi_array_view::MultiArrayView;
-pub use shape::{
-    DimensionMismatchingError, DummyShape, DynShape, IndexCalculationError, OutOfShapeError, Shape,
-    Shape1, Shape2, Shape3, Shape4,
-};
+pub use dummy_vector::DummyIndex;
+pub use multi_array::*;
+pub use multi_array_view::*;
+pub use shape::*;
