@@ -1,9 +1,16 @@
 [package]
-name = "multiarray"
+name = "ospf-multiarray"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["fuookami <fuookami@163.com>"]
+description = "A multi-array utils for ospf-rust."
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-meta_programming = { git = "https://github.com/fuookami/rust-meta-programming.git" }
+ospf-meta_programming = { git = "https://github.com/fuookami/ospf-rust-meta-programming.git" }
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
