@@ -1,4 +1,6 @@
-[Tt]arget/
 Cargo.lock
+[Tt]arget/
+[Dd]ebug/
+[Rr]elease/
 .vs/
 .idea/
